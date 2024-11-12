@@ -1,15 +1,24 @@
+// number of lights
+const static int n = 2;
 
 Texture2D shaderTexture : register(t0);
-Texture2D depthMapTexture : register(t1);
+Texture2D depthMapTexture[n] : register(t1);
 
 SamplerState diffuseSampler  : register(s0);
 SamplerState shadowSampler : register(s1);
 
-cbuffer LightBuffer : register(b0)
+
+struct LightStruct
 {
 	float4 ambient;
 	float4 diffuse;
 	float3 direction;
+	float padding;
+};
+
+cbuffer LightBuffer : register(b0)
+{
+	LightStruct l[n];
 };
 
 struct InputType
@@ -17,7 +26,7 @@ struct InputType
     float4 position : SV_POSITION;
     float2 tex : TEXCOORD0;
 	float3 normal : NORMAL;
-    float4 lightViewPos : TEXCOORD1;
+    float4 lightViewPos[n] : TEXCOORD1;
 };
 
 // Calculate lighting intensity based on direction and normal. Combine with light colour.
@@ -68,21 +77,23 @@ float4 main(InputType input) : SV_TARGET
     float shadowMapBias = 0.005f;
     float4 colour = float4(0.f, 0.f, 0.f, 1.f);
     float4 textureColour = shaderTexture.Sample(diffuseSampler, input.tex);
-
-	// Calculate the projected texture coordinates.
-    float2 pTexCoord = getProjectiveCoords(input.lightViewPos);
-	
-    // Shadow test. Is or isn't in shadow
-    if (hasDepthData(pTexCoord))
-    {
-        // Has depth map data
-        if (!isInShadow(depthMapTexture, pTexCoord, input.lightViewPos, shadowMapBias))
-        {
-            // is NOT in shadow, therefore light
-            colour = calculateLighting(-direction, input.normal, diffuse);
-        }
-    }
     
-    colour = saturate(colour + ambient);
+	for (int i = 0; i < n; i++)
+	{
+		float2 pTexCoord = getProjectiveCoords(input.lightViewPos[i]);
+		if (hasDepthData(pTexCoord))
+		{
+			bool inShadow = false;
+			if (isInShadow(depthMapTexture[i], pTexCoord, input.lightViewPos[i], shadowMapBias))
+			{
+				inShadow = true;
+			}
+			if (!inShadow)
+			{
+				colour += calculateLighting(-(l[i].direction), input.normal, l[i].diffuse);
+			}
+		}
+	}
+    colour = saturate(colour + l[0].ambient);
     return saturate(colour) * textureColour;
 }
